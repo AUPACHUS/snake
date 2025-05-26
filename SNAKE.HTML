@@ -111,12 +111,16 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreElement = document.getElementById('score');
+        const highScoreElement = document.getElementById('highScore');
         const gameOverElement = document.getElementById('gameOver');
         const finalScoreElement = document.getElementById('finalScore');
+        const gameOverHighScoreElement = document.getElementById('gameOverHighScore');
+        const startScreenElement = document.getElementById('startScreen');
 
         // Configuración del juego
         const gridSize = 20;
         const tileCount = canvas.width / gridSize;
+        const gameSpeed = 150; // Velocidad del juego en ms (menor = más rápido)
 
         let snake = [
             {x: 10, y: 10}
@@ -125,8 +129,25 @@
         let dx = 0;
         let dy = 0;
         let score = 0;
-        let gameRunning = true;
+        let highScore = localStorage.getItem('snakeHighScore') || 0;
+        let gameRunning = false;
         let gamePaused = false;
+        let gameStarted = false;
+
+        // Mostrar récord inicial
+        highScoreElement.textContent = highScore;
+        gameOverHighScoreElement.textContent = highScore;
+
+        // Iniciar el juego desde la pantalla de inicio
+        function startGame() {
+            startScreenElement.style.display = 'none';
+            gameStarted = true;
+            gameRunning = true;
+            // Iniciar con movimiento hacia la derecha
+            dx = 1;
+            dy = 0;
+            init();
+        }
 
         // Inicializar el juego
         function init() {
@@ -150,6 +171,25 @@
             }
         }
 
+        // Crear efecto visual al comer
+        function createFoodEffect() {
+            const effect = document.createElement('div');
+            effect.className = 'food-effect';
+            effect.textContent = '+10';
+            effect.style.left = `${food.x * gridSize + canvas.offsetLeft}px`;
+            effect.style.top = `${food.y * gridSize + canvas.offsetTop}px`;
+            document.body.appendChild(effect);
+            
+            // Eliminar el efecto después de la animación
+            setTimeout(() => {
+                document.body.removeChild(effect);
+            }, 500);
+            
+            // Reproducir sonido
+            eatSound.currentTime = 0;
+            eatSound.play();
+        }
+
         // Dibujar en el canvas
         function draw() {
             // Limpiar canvas
@@ -157,8 +197,11 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             // Dibujar serpiente
-            ctx.fillStyle = '#4ecdc4';
-            for (let segment of snake) {
+            for (let i = 0; i < snake.length; i++) {
+                // Gradiente de color para la serpiente
+                const segment = snake[i];
+                const colorIntensity = 1 - (i / snake.length * 0.7);
+                ctx.fillStyle = `rgba(78, 205, 196, ${colorIntensity})`;
                 ctx.fillRect(segment.x * gridSize, segment.y * gridSize, gridSize - 2, gridSize - 2);
             }
 
@@ -166,9 +209,35 @@
             ctx.fillStyle = '#45b7aa';
             ctx.fillRect(snake[0].x * gridSize, snake[0].y * gridSize, gridSize - 2, gridSize - 2);
 
-            // Dibujar comida
+            // Dibujar ojos en la cabeza
+            const headX = snake[0].x * gridSize;
+            const headY = snake[0].y * gridSize;
+            ctx.fillStyle = '#000';
+            
+            // Posición de los ojos según la dirección
+            if (dx === 1) { // Derecha
+                ctx.fillRect(headX + gridSize - 8, headY + 5, 3, 3);
+                ctx.fillRect(headX + gridSize - 8, headY + gridSize - 8, 3, 3);
+            } else if (dx === -1) { // Izquierda
+                ctx.fillRect(headX + 5, headY + 5, 3, 3);
+                ctx.fillRect(headX + 5, headY + gridSize - 8, 3, 3);
+            } else if (dy === -1) { // Arriba
+                ctx.fillRect(headX + 5, headY + 5, 3, 3);
+                ctx.fillRect(headX + gridSize - 8, headY + 5, 3, 3);
+            } else if (dy === 1) { // Abajo
+                ctx.fillRect(headX + 5, headY + gridSize - 8, 3, 3);
+                ctx.fillRect(headX + gridSize - 8, headY + gridSize - 8, 3, 3);
+            }
+
+            // Dibujar comida con efecto pulsante
+            const pulseSize = Math.sin(Date.now() / 200) * 2;
             ctx.fillStyle = '#ff6b6b';
-            ctx.fillRect(food.x * gridSize, food.y * gridSize, gridSize - 2, gridSize - 2);
+            ctx.fillRect(
+                food.x * gridSize + pulseSize/2, 
+                food.y * gridSize + pulseSize/2, 
+                gridSize - 2 - pulseSize, 
+                gridSize - 2 - pulseSize
+            );
         }
 
         // Actualizar la lógica del juego
@@ -184,7 +253,8 @@
             }
 
             // Verificar colisiones con el propio cuerpo
-            for (let segment of snake) {
+            for (let i = 1; i < snake.length; i++) {
+                const segment = snake[i];
                 if (head.x === segment.x && head.y === segment.y) {
                     gameOver();
                     return;
@@ -197,6 +267,16 @@
             if (head.x === food.x && head.y === food.y) {
                 score += 10;
                 scoreElement.textContent = score;
+                
+                // Actualizar récord si es necesario
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('snakeHighScore', highScore);
+                    highScoreElement.textContent = highScore;
+                    gameOverHighScoreElement.textContent = highScore;
+                }
+                
+                createFoodEffect();
                 generateFood();
             } else {
                 snake.pop();
@@ -208,12 +288,13 @@
             gameRunning = false;
             finalScoreElement.textContent = score;
             gameOverElement.style.display = 'block';
+            gameOverSound.play();
         }
 
         // Reiniciar el juego
         function restartGame() {
             snake = [{x: 10, y: 10}];
-            dx = 0;
+            dx = 1;
             dy = 0;
             score = 0;
             scoreElement.textContent = score;
@@ -223,15 +304,27 @@
             generateFood();
         }
 
+        // Pausar/reanudar el juego
+        function togglePause() {
+            if (gameRunning) {
+                gamePaused = !gamePaused;
+            }
+        }
+
         // Bucle principal del juego
         function gameLoop() {
             update();
             draw();
-            setTimeout(gameLoop, 150);
+            setTimeout(gameLoop, gameSpeed);
         }
 
         // Manejar controles del teclado
         document.addEventListener('keydown', (e) => {
+            if (!gameStarted && e.code === 'Space') {
+                startGame();
+                return;
+            }
+            
             if (!gameRunning) return;
 
             const key = e.code;
@@ -239,7 +332,7 @@
             // Pausar/reanudar con espaciador
             if (key === 'Space') {
                 e.preventDefault();
-                gamePaused = !gamePaused;
+                togglePause();
                 return;
             }
 
@@ -259,7 +352,42 @@
             }
         });
 
-        // Soporte para dispositivos móviles
+        // Configurar controles en pantalla para móviles
+        document.querySelector('.up-btn').addEventListener('click', () => {
+            if (gameRunning && !gamePaused && dy !== 1) {
+                dx = 0;
+                dy = -1;
+            }
+        });
+        
+        document.querySelector('.down-btn').addEventListener('click', () => {
+            if (gameRunning && !gamePaused && dy !== -1) {
+                dx = 0;
+                dy = 1;
+            }
+        });
+        
+        document.querySelector('.left-btn').addEventListener('click', () => {
+            if (gameRunning && !gamePaused && dx !== 1) {
+                dx = -1;
+                dy = 0;
+            }
+        });
+        
+        document.querySelector('.right-btn').addEventListener('click', () => {
+            if (gameRunning && !gamePaused && dx !== -1) {
+                dx = 1;
+                dy = 0;
+            }
+        });
+        
+        document.querySelector('.pause-btn').addEventListener('click', () => {
+            if (gameRunning) {
+                togglePause();
+            }
+        });
+
+        // Soporte para gestos táctiles
         let touchStartX = 0;
         let touchStartY = 0;
 
@@ -294,7 +422,7 @@
             }
         });
 
-        // Iniciar el juego
+        // Inicializar el juego (pero no comenzar hasta que el usuario presione "Comenzar")
         init();
     </script>
 </body>
